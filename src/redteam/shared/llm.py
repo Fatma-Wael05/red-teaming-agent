@@ -112,6 +112,7 @@ class LLMClient:
         max_tokens: int | None = None,
     ) -> LLMResult:
         cfg = self._settings.role_config(role)
+        temp = temperature if temperature is not None else cfg.temperature
         fallbacks = (m for m in self._settings.fallback_models() if m != cfg.model)
         chain = [cfg.model, *fallbacks]
         for model in chain:
@@ -121,7 +122,7 @@ class LLMClient:
         last_error: Exception | None = None
         for model in chain:
             effort = cfg.reasoning_effort if model == cfg.model else None
-            kwargs = _request_kwargs(model, messages, effort, temperature, max_tokens)
+            kwargs = _request_kwargs(model, messages, effort, temp, max_tokens)
             try:
                 resp, latency = self._create_with_retries(client, kwargs)
             except Exception as exc:

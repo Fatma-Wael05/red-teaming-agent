@@ -17,6 +17,7 @@ class RoleConfig(BaseModel):
     provider: str
     model: str
     reasoning_effort: str | None = None
+    temperature: float | None = None
 
 
 class Settings(BaseSettings):
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     llm_reasoning_effort_judge: str | None = None
     llm_reasoning_effort_target: str | None = None
 
+    llm_temperature_attacker: float | None = None
+    llm_temperature_judge: float | None = None
+    llm_temperature_target: float | None = None
+
     llm_fallbacks: str = ""  # comma-separated model IDs, tried in order on failure
 
     def role_config(self, role: str) -> RoleConfig:
@@ -43,11 +48,13 @@ class Settings(BaseSettings):
             raise ValueError(f"unknown role {role!r}; expected one of {ROLES}")
         model: str = getattr(self, f"llm_model_{role}") or self.llm_model
         effort: str | None = getattr(self, f"llm_reasoning_effort_{role}") or None
+        temperature: float | None = getattr(self, f"llm_temperature_{role}")
         return RoleConfig(
             role=role,
             provider=self.llm_provider,
             model=model,
             reasoning_effort=effort,
+            temperature=temperature,
         )
 
     def fallback_models(self) -> tuple[str, ...]:

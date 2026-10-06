@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 from redteam.shared.settings import get_settings
 
