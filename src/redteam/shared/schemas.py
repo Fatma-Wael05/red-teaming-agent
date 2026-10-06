@@ -171,3 +171,4 @@ class LLMCallLog(Frozen):
     cost_usd: float = Field(ge=0.0)
     latency_s: float = Field(ge=0.0)
     attempt_id: str | None = None
+    finish_reason: str | None = None  # e.g. stop, length, content_filter
