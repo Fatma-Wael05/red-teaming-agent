@@ -15,3 +15,7 @@
 - attacker: qwen/qwen3.8-27b, judge: openai/gpt-oss-120b, target: openai/gpt-oss-120b.
 - TEMPORARY: judge and target share a model while building. Switch the target to a different family before any baseline vs. adaptive comparison.
 - Cost is logged at list price (notional) even on free tiers, so the Cost Engine stays meaningful.
+
+## 2026-10-06 - Attacker temperature
+- Qwen on Groq returned an off-instruction word at default sampling; temperature 0.7 (model page, instruct mode) fixed it in 3 of 3 trials.
+- Thinking (reasoning_effort=low) cost about 10x the output tokens for the same answer, so the attacker default stays "none".

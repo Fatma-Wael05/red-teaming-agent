@@ -210,3 +210,21 @@ def test_caller_and_attempt_id_are_recorded() -> None:
 )
 def test_is_retryable_by_status(status: int, expected: bool) -> None:
     assert is_retryable(_HTTPError(status)) is expected
+
+
+def test_role_temperature_is_sent_by_default() -> None:
+    llm, fake, _ = _make([_resp()], settings=_settings(llm_temperature_attacker=0.7))
+    llm.chat("attacker", MSGS)
+    assert fake.calls[0]["temperature"] == 0.7
+
+
+def test_explicit_temperature_overrides_role_setting() -> None:
+    llm, fake, _ = _make([_resp()], settings=_settings(llm_temperature_attacker=0.7))
+    llm.chat("attacker", MSGS, temperature=0.2)
+    assert fake.calls[0]["temperature"] == 0.2
+
+
+def test_no_temperature_sent_when_unset() -> None:
+    llm, fake, _ = _make([_resp()])
+    llm.chat("judge", MSGS)
+    assert "temperature" not in fake.calls[0]

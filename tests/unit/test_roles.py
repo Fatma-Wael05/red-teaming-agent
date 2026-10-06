@@ -73,3 +73,9 @@ def test_zero_tokens_cost_nothing() -> None:
 def test_unknown_model_price_raises() -> None:
     with pytest.raises(ValueError):
         notional_cost_usd("no/such-model", 10, 10)
+
+
+def test_temperature_is_per_role() -> None:
+    s = _settings(llm_temperature_attacker=0.7)
+    assert s.role_config("attacker").temperature == 0.7
+    assert s.role_config("judge").temperature is None
