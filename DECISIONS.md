@@ -10,3 +10,8 @@
 - llama-3.3-70b-versatile was shut down by Groq on 2026-08-16 (supersedes the model named in the Groq provider decision above).
 - Switched LLM_MODEL to openai/gpt-oss-120b, Groq's recommended replacement.
 - Re-check tool calling and structured-output behavior in tests.
+
+## 2026-10-05 - Per-role models
+- attacker: qwen/qwen3.8-27b, judge: openai/gpt-oss-120b, target: openai/gpt-oss-120b.
+- TEMPORARY: judge and target share a model while building. Switch the target to a different family before any baseline vs. adaptive comparison.
+- Cost is logged at list price (notional) even on free tiers, so the Cost Engine stays meaningful.
