@@ -228,3 +228,77 @@ def test_no_temperature_sent_when_unset() -> None:
     llm, fake, _ = _make([_resp()])
     llm.chat("judge", MSGS)
     assert "temperature" not in fake.calls[0]
+
+
+def _tool_resp(arguments: Any, call_id: str = "call_1", name: str = "transfer_money") -> Any:
+    function = SimpleNamespace(name=name, arguments=arguments)
+    tool_call = SimpleNamespace(id=call_id, function=function)
+    message = SimpleNamespace(content=None, tool_calls=[tool_call])
+    choice = SimpleNamespace(message=message, finish_reason="tool_calls")
+    usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5)
+    return SimpleNamespace(choices=[choice], usage=usage)
+
+
+def test_tool_calls_are_parsed_and_tools_are_sent() -> None:
+    llm, fake, _ = _make([_tool_resp('{"to": "alice", "amount": 100}')])
+    tools = [{"type": "function"}]
+    result = llm.chat("judge", MSGS, tools=tools, tool_choice="auto")
+    assert result.tool_calls[0].name == "transfer_money"
+    assert result.tool_calls[0].arguments == {"to": "alice", "amount": 100}
+    assert fake.calls[0]["tools"] == tools
+    assert fake.calls[0]["tool_choice"] == "auto"
+
+
+@pytest.mark.parametrize("raw", ["{broken", "[1, 2]", "", None])
+def test_malformed_tool_arguments_do_not_crash(raw: Any) -> None:
+    llm, _, _ = _make([_tool_resp(raw)])
+    result = llm.chat("judge", MSGS)
+    assert result.tool_calls[0].arguments == {}
+    assert result.assistant_message["tool_calls"][0]["id"] == "call_1"
+
+
+def test_assistant_message_carries_tool_call_ids() -> None:
+    llm, _, _ = _make([_tool_resp('{"to": "alice"}')])
+    result = llm.chat("judge", MSGS)
+    assert result.assistant_message == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "transfer_money", "arguments": '{"to": "alice"}'},
+            }
+        ],
+    }
+
+
+def test_assistant_message_for_a_plain_answer() -> None:
+    llm, _, _ = _make([_resp("hello")])
+    result = llm.chat("judge", MSGS)
+    assert result.assistant_message == {"role": "assistant", "content": "hello"}
+    assert result.tool_calls == ()
+
+
+def test_target_gets_no_fallback_by_default() -> None:
+    llm, fake, _ = _make(
+        [_HTTPError(429)] * 3, settings=_settings(llm_fallbacks="qwen/qwen3.8-27b")
+    )
+    with pytest.raises(AllModelsFailed):
+        llm.chat("target", MSGS)
+    assert len(fake.calls) == 3
+
+
+def test_target_fallback_can_be_enabled_explicitly() -> None:
+    script = [_HTTPError(429)] * 3 + [_resp("fallback ok")]
+    llm, _, _ = _make(script, settings=_settings(llm_fallbacks="qwen/qwen3.8-27b"))
+    result = llm.chat("target", MSGS, allow_fallback=True)
+    assert result.text == "fallback ok"
+    assert result.call.model == "qwen/qwen3.8-27b"
+
+
+def test_fallback_can_be_disabled_for_other_roles() -> None:
+    llm, fake, _ = _make([_HTTPError(429)] * 3)
+    with pytest.raises(AllModelsFailed):
+        llm.chat("attacker", MSGS, allow_fallback=False)
+    assert len(fake.calls) == 3
