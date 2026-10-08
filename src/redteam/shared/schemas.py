@@ -86,7 +86,8 @@ class Verdict(Frozen):
 # ------------------------------------------------------ what happened (target)
 class ToolCall(Frozen):
     name: str
-    arguments: dict[str, Any]
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None  # <--- ADD THIS
 
 
 class Turn(Frozen):
