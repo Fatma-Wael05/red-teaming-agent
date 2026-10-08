@@ -4,6 +4,7 @@ Routes a role to its model, retries transient errors, falls back to the next mod
 computes notional cost, and appends one LLMCallLog line per answered call.
 """
 
+import json
 import re
 import time
 from collections.abc import Callable
@@ -14,7 +15,7 @@ from typing import Any
 from openai import APIConnectionError, OpenAI
 
 from redteam.shared.pricing import notional_cost_usd
-from redteam.shared.schemas import LLMCallLog
+from redteam.shared.schemas import LLMCallLog, ToolCall
 from redteam.shared.settings import GROQ_BASE_URL, Settings
 from redteam.shared.storage import append_jsonl
 
@@ -38,6 +39,7 @@ class LLMResult:
     text: str
     finish_reason: str | None
     call: LLMCallLog
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 def is_retryable(exc: Exception) -> bool:
@@ -60,10 +62,13 @@ def build_client(provider: str, settings: Settings) -> Any:
 
 def _request_kwargs(
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     effort: str | None,
     temperature: float | None,
-    max_tokens: int | None,
+    max_tokens: int | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     kwargs: dict[str, Any] = {"model": model, "messages": messages}
     if temperature is not None:
@@ -72,6 +77,12 @@ def _request_kwargs(
         kwargs["max_tokens"] = max_tokens
     if effort is not None:
         kwargs["reasoning_effort"] = effort
+    if tools is not None:
+        kwargs["tools"] = tools
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+    if seed is not None:
+        kwargs["seed"] = seed
     return kwargs
 
 
@@ -89,7 +100,9 @@ class LLMClient:
     ) -> None:
         self._settings = settings
         self._log_path = log_path
-        self._factory = client_factory or (lambda provider: build_client(provider, settings))
+        self._factory = client_factory or (
+            lambda provider: build_client(provider, settings)
+        )
         self._max_retries = max_retries
         self._backoff_s = backoff_s
         self._sleep = sleep
@@ -104,25 +117,41 @@ class LLMClient:
     def chat(
         self,
         role: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
-        caller: str | None = None,
         attempt_id: str | None = None,
+        caller: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> LLMResult:
         cfg = self._settings.role_config(role)
         temp = temperature if temperature is not None else cfg.temperature
-        fallbacks = (m for m in self._settings.fallback_models() if m != cfg.model)
+        fallbacks = (
+            m for m in self._settings.fallback_models() if m != cfg.model
+        )
         chain = [cfg.model, *fallbacks]
         for model in chain:
-            notional_cost_usd(model, 0, 0)  # an unknown price fails here, before any call
+            notional_cost_usd(
+                model, 0, 0
+            )  # an unknown price fails here, before any call
         client = self._client(cfg.provider)
 
         last_error: Exception | None = None
         for model in chain:
             effort = cfg.reasoning_effort if model == cfg.model else None
-            kwargs = _request_kwargs(model, messages, effort, temp, max_tokens)
+            kwargs = _request_kwargs(
+                model,
+                messages,
+                effort=effort,
+                temperature=temp,
+                max_tokens=max_tokens,
+                tools=tools,
+                tool_choice=tool_choice,
+                seed=seed,
+            )
             try:
                 resp, latency = self._create_with_retries(client, kwargs)
             except Exception as exc:
@@ -139,9 +168,13 @@ class LLMClient:
                 model=model,
                 attempt_id=attempt_id,
             )
-        raise AllModelsFailed(f"all models failed for role {role!r}: {chain}") from last_error
+        raise AllModelsFailed(
+            f"all models failed for role {role!r}: {chain}"
+        ) from last_error
 
-    def _create_with_retries(self, client: Any, kwargs: dict[str, Any]) -> tuple[Any, float]:
+    def _create_with_retries(
+        self, client: Any, kwargs: dict[str, Any]
+    ) -> tuple[Any, float]:
         for attempt in range(self._max_retries + 1):
             start = self._clock()
             try:
@@ -149,7 +182,7 @@ class LLMClient:
             except Exception as exc:
                 if not is_retryable(exc) or attempt == self._max_retries:
                     raise
-                self._sleep(self._backoff_s * 2**attempt)
+                self._sleep(self._backoff_s * (2**attempt))
                 continue
             return resp, self._clock() - start
         raise AssertionError("unreachable")
@@ -172,6 +205,7 @@ class LLMClient:
             raw: str = choice.message.content or ""
             text = _THINK_RE.sub("", raw).strip()
             finish = choice.finish_reason
+
         usage = getattr(resp, "usage", None)
         input_tokens: int = getattr(usage, "prompt_tokens", 0) or 0
         output_tokens: int = getattr(usage, "completion_tokens", 0) or 0
@@ -189,4 +223,24 @@ class LLMClient:
         )
         if self._log_path is not None:
             append_jsonl(self._log_path, call)
-        return LLMResult(text=text, finish_reason=finish, call=call)
+
+        # Extract tool calls if returned by the model
+        tool_calls_list: list[ToolCall] = []
+        if resp.choices and hasattr(resp.choices[0].message, "tool_calls"):
+            raw_calls = resp.choices[0].message.tool_calls or []
+            for tc in raw_calls:
+                args = (
+                    json.loads(tc.function.arguments)
+                    if isinstance(tc.function.arguments, str)
+                    else tc.function.arguments
+                )
+                tool_calls_list.append(
+                    ToolCall(name=tc.function.name, arguments=args)
+                )
+
+        return LLMResult(
+            text=text,
+            finish_reason=finish,
+            call=call,
+            tool_calls=tuple(tool_calls_list),
+        )
