@@ -1,14 +1,15 @@
 """The one place every LLM call goes through (rule 1).
 
-Routes a role to its model, retries transient errors, falls back to the next model,
-computes notional cost, and appends one LLMCallLog line per answered call.
+Routes a role to its model, retries transient errors, falls back to the next model
+(never for the target unless asked), computes notional cost, and appends one LLMCallLog
+line per answered call.
 """
 
 import json
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,9 @@ class LLMResult:
     finish_reason: str | None
     call: LLMCallLog
     tool_calls: tuple[ToolCall, ...] = ()
+    # Ready to append to the conversation history. When the model called tools it carries
+    # the tool-call ids, in the same order as tool_calls, for the matching tool messages.
+    assistant_message: dict[str, Any] = field(default_factory=dict)
 
 
 def is_retryable(exc: Exception) -> bool:
@@ -58,6 +62,49 @@ def build_client(provider: str, settings: Settings) -> Any:
         msg = "GROQ_API_KEY is empty or a placeholder; set it in your local .env"
         raise MissingKeyError(msg)
     return OpenAI(api_key=key, base_url=GROQ_BASE_URL)
+
+
+def parse_arguments(raw: Any) -> dict[str, Any]:
+    """Tool arguments arrive as a JSON string. Anything unusable becomes an empty dict."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _extract_tools(text: str, message: Any) -> tuple[tuple[ToolCall, ...], dict[str, Any]]:
+    """Turn the model's raw message into ToolCall records plus a history-ready message."""
+    raw_calls = getattr(message, "tool_calls", None) or []
+    calls: list[ToolCall] = []
+    wire: list[dict[str, Any]] = []
+    for tc in raw_calls:
+        raw_args = tc.function.arguments
+        calls.append(ToolCall(name=tc.function.name, arguments=parse_arguments(raw_args)))
+        wire.append(
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": raw_args
+                    if isinstance(raw_args, str)
+                    else json.dumps(raw_args or {}),
+                },
+            }
+        )
+    assistant: dict[str, Any] = {
+        "role": "assistant",
+        "content": text if (text or not wire) else None,
+    }
+    if wire:
+        assistant["tool_calls"] = wire
+    return tuple(calls), assistant
 
 
 def _request_kwargs(
@@ -100,9 +147,7 @@ class LLMClient:
     ) -> None:
         self._settings = settings
         self._log_path = log_path
-        self._factory = client_factory or (
-            lambda provider: build_client(provider, settings)
-        )
+        self._factory = client_factory or (lambda provider: build_client(provider, settings))
         self._max_retries = max_retries
         self._backoff_s = backoff_s
         self._sleep = sleep
@@ -126,17 +171,19 @@ class LLMClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
         seed: int | None = None,
+        allow_fallback: bool | None = None,
     ) -> LLMResult:
         cfg = self._settings.role_config(role)
         temp = temperature if temperature is not None else cfg.temperature
+        # A fallback silently changes what we are measuring, so the target never gets one
+        # unless the caller asks for it explicitly.
+        use_fallbacks = allow_fallback if allow_fallback is not None else role != "target"
         fallbacks = (
-            m for m in self._settings.fallback_models() if m != cfg.model
+            [m for m in self._settings.fallback_models() if m != cfg.model] if use_fallbacks else []
         )
         chain = [cfg.model, *fallbacks]
         for model in chain:
-            notional_cost_usd(
-                model, 0, 0
-            )  # an unknown price fails here, before any call
+            notional_cost_usd(model, 0, 0)  # an unknown price fails here, before any call
         client = self._client(cfg.provider)
 
         last_error: Exception | None = None
@@ -168,13 +215,9 @@ class LLMClient:
                 model=model,
                 attempt_id=attempt_id,
             )
-        raise AllModelsFailed(
-            f"all models failed for role {role!r}: {chain}"
-        ) from last_error
+        raise AllModelsFailed(f"all models failed for role {role!r}: {chain}") from last_error
 
-    def _create_with_retries(
-        self, client: Any, kwargs: dict[str, Any]
-    ) -> tuple[Any, float]:
+    def _create_with_retries(self, client: Any, kwargs: dict[str, Any]) -> tuple[Any, float]:
         for attempt in range(self._max_retries + 1):
             start = self._clock()
             try:
@@ -200,9 +243,11 @@ class LLMClient:
     ) -> LLMResult:
         text = ""
         finish: str | None = "no_choices"
+        message: Any = None
         if resp.choices:
             choice = resp.choices[0]
-            raw: str = choice.message.content or ""
+            message = choice.message
+            raw: str = message.content or ""
             text = _THINK_RE.sub("", raw).strip()
             finish = choice.finish_reason
 
@@ -224,23 +269,11 @@ class LLMClient:
         if self._log_path is not None:
             append_jsonl(self._log_path, call)
 
-        # Extract tool calls if returned by the model
-        tool_calls_list: list[ToolCall] = []
-        if resp.choices and hasattr(resp.choices[0].message, "tool_calls"):
-            raw_calls = resp.choices[0].message.tool_calls or []
-            for tc in raw_calls:
-                args = (
-                    json.loads(tc.function.arguments)
-                    if isinstance(tc.function.arguments, str)
-                    else tc.function.arguments
-                )
-                tool_calls_list.append(
-                    ToolCall(name=tc.function.name, arguments=args)
-                )
-
+        tool_calls, assistant_message = _extract_tools(text, message)
         return LLMResult(
             text=text,
             finish_reason=finish,
             call=call,
-            tool_calls=tuple(tool_calls_list),
+            tool_calls=tool_calls,
+            assistant_message=assistant_message,
         )
