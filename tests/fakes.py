@@ -6,11 +6,15 @@ from redteam.shared.schemas import Outcome, Trial, Verdict
 
 
 class FakeTarget:
-    """Same method names and return shapes as the real TargetAgent."""
+    """Same method names and return shapes as the real TargetAgent (through the adapter)."""
 
     def __init__(self) -> None:
         self.history: list[dict[str, str]] = []
         self.resets = 0
+        self.attempt_ids: list[str] = []
+
+    def begin_attempt(self, attempt_id: str) -> None:
+        self.attempt_ids.append(attempt_id)
 
     def handle_message(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         self.history.append({"role": "user", "content": text})
