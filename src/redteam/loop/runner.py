@@ -4,7 +4,7 @@ This is run_round() only. Budget, specialist selection and learnings come later.
 """
 
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from redteam.shared.schemas import (
     AttemptRecord,
@@ -20,11 +20,18 @@ from redteam.shared.storage import append_jsonl
 
 
 class TargetPort(Protocol):
-    """What the runner needs from a target. The real TargetAgent already has this shape."""
+    """What the runner needs from a target."""
 
     def handle_message(self, text: str) -> tuple[str, list[dict[str, Any]]]: ...
 
     def reset_conversation(self) -> None: ...
+
+
+@runtime_checkable
+class AttemptAware(Protocol):
+    """Optional: targets that want to know which attempt is running (for cost tracing)."""
+
+    def begin_attempt(self, attempt_id: str) -> None: ...
 
 
 class JudgePort(Protocol):
@@ -66,6 +73,8 @@ def run_round(
 ) -> Trial:
     """Run one single-message attempt on a fresh conversation and save the judged Trial."""
     target.reset_conversation()
+    if isinstance(target, AttemptAware):
+        target.begin_attempt(attempt.attempt_id)
     attacker_turn = Turn(speaker=Speaker.ATTACKER, content=attempt.payload)
 
     try:

@@ -19,3 +19,7 @@
 ## 2026-10-06 - Attacker temperature
 - Qwen on Groq returned an off-instruction word at default sampling; temperature 0.7 (model page, instruct mode) fixed it in 3 of 3 trials.
 - Thinking (reasoning_effort=low) cost about 10x the output tokens for the same answer, so the attacker default stays "none".
+
+## 2026-10-09 - Target adapter
+- The real TargetAgent calls Groq itself. Until it accepts an injected client, TargetAdapter copies its per-call log into llm_calls.jsonl at notional prices, tagged with the attempt id.
+- Once the target uses our wrapper, build the adapter with log_agent_calls=False so calls are not logged twice.

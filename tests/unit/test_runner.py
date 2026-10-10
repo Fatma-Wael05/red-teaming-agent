@@ -103,3 +103,10 @@ def test_to_tool_calls_tolerates_odd_log_entries() -> None:
     assert calls[0].arguments == {}
     assert calls[0].result == {"value": "plain text"}
     assert calls[1].result is None
+
+
+def test_attempt_aware_targets_are_told_the_attempt_id(tmp_path: Path) -> None:
+    target = FakeTarget()
+    attempt = _attempt()
+    _run(attempt, target, tmp_path / "trials.jsonl")
+    assert target.attempt_ids == [attempt.attempt_id]
