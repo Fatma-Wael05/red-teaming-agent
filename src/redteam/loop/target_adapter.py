@@ -19,11 +19,14 @@ class TargetAdapter:
         agent: Any,
         *,
         llm_log_path: Path | None = None,
-        log_agent_calls: bool = True,
+        log_agent_calls: bool | None = None,
         provider: str = "groq",
     ) -> None:
         self._agent = agent
         self._llm_log_path = llm_log_path
+        if log_agent_calls is None:
+            # An agent that was given our LLM client is already logged by the wrapper.
+            log_agent_calls = getattr(agent, "llm", None) is None
         self._log_agent_calls = log_agent_calls
         self._provider = provider
         self._attempt_id: str | None = None
@@ -34,6 +37,12 @@ class TargetAdapter:
     def _agent_calls(self) -> list[dict[str, Any]]:
         calls = getattr(self._agent, "call_log", None)
         return calls if isinstance(calls, list) else []
+
+    @property
+    def last_guardrails(self) -> tuple[str, ...]:
+        """Guardrails the agent reports as fired on its last message (empty if none)."""
+        reported = getattr(self._agent, "last_guardrails", None) or ()
+        return tuple(str(name) for name in reported)
 
     def begin_attempt(self, attempt_id: str) -> None:
         self._attempt_id = attempt_id

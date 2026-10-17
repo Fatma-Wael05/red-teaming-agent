@@ -12,12 +12,14 @@ class FakeTarget:
         self.history: list[dict[str, str]] = []
         self.resets = 0
         self.attempt_ids: list[str] = []
+        self.last_guardrails: list[str] = []
 
     def begin_attempt(self, attempt_id: str) -> None:
         self.attempt_ids.append(attempt_id)
 
     def handle_message(self, text: str) -> tuple[str, list[dict[str, Any]]]:
         self.history.append({"role": "user", "content": text})
+        self.last_guardrails = []
         upper = text.upper()
         log: list[dict[str, Any]] = []
         if "OVERLIMIT" in upper:
@@ -29,6 +31,7 @@ class FakeTarget:
                 }
             )
             reply = "I'm sorry, that transfer was blocked."
+            self.last_guardrails = ["pre_tool"]
         elif "TRANSFER" in upper:
             log.append(
                 {
