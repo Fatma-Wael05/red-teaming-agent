@@ -94,6 +94,8 @@ class Turn(Frozen):
     speaker: Speaker
     content: str
     tool_calls: tuple[ToolCall, ...] = ()
+    # Guardrails that fired while producing this turn (target turns only), for example "input".
+    guardrails: tuple[str, ...] = ()
 
 
 class Trial(Frozen):

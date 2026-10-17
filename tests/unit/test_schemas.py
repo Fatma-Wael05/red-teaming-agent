@@ -247,3 +247,14 @@ def test_llm_call_log_rejects_negative_tokens() -> None:
             cost_usd=0.0,
             latency_s=0.0,
         )
+
+
+def test_turn_guardrails_default_to_empty_and_survive_json() -> None:
+    assert Turn(speaker=Speaker.TARGET, content="x").guardrails == ()
+    turns = (
+        Turn(speaker=Speaker.ATTACKER, content="a"),
+        Turn(speaker=Speaker.TARGET, content="b", guardrails=("input",)),
+    )
+    t = _trial(turns=turns)
+    assert Trial.model_validate_json(t.model_dump_json()) == t
+    assert t.turns[1].guardrails == ("input",)

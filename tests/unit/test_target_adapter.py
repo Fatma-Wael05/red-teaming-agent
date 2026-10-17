@@ -141,3 +141,29 @@ def test_run_round_links_cost_lines_to_the_trial(tmp_path: Path) -> None:
     logs = read_jsonl(llm_path, LLMCallLog)
     assert [log.attempt_id for log in logs] == [attempt.attempt_id]
     assert trial.turns[1].tool_calls[0].name == "get_balance"
+
+
+class _InjectedAgent(_FakeRealAgent):
+    """An agent that was given our LLM client, so the wrapper already logs its calls."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.llm = object()
+        self.last_guardrails = ["input"]
+
+
+def test_calls_are_not_logged_twice_when_the_agent_uses_our_client(tmp_path: Path) -> None:
+    path = tmp_path / "llm_calls.jsonl"
+    TargetAdapter(_InjectedAgent(), llm_log_path=path).handle_message("hi")
+    assert not path.exists()
+
+
+def test_logging_can_be_forced_on_for_an_injected_agent(tmp_path: Path) -> None:
+    path = tmp_path / "llm_calls.jsonl"
+    TargetAdapter(_InjectedAgent(), llm_log_path=path, log_agent_calls=True).handle_message("hi")
+    assert len(read_jsonl(path, LLMCallLog)) == 1
+
+
+def test_guardrail_report_is_exposed() -> None:
+    assert TargetAdapter(_InjectedAgent()).last_guardrails == ("input",)
+    assert TargetAdapter(_BareAgent()).last_guardrails == ()

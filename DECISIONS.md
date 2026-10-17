@@ -23,3 +23,8 @@
 ## 2026-10-09 - Target adapter
 - The real TargetAgent calls Groq itself. Until it accepts an injected client, TargetAdapter copies its per-call log into llm_calls.jsonl at notional prices, tagged with the attempt id.
 - Once the target uses our wrapper, build the adapter with log_agent_calls=False so calls are not logged twice.
+
+## 2026-10-17 - Real target through our wrapper
+- The target now accepts an injected LLM client (merged in TargetAgent_GP). Our runs pass one, so target calls are logged by the wrapper with the attempt id.
+- TargetAdapter turns its own cost copying off automatically for such agents.
+- Turn.guardrails records which target guardrails fired (input, pre_tool, output). Schema change: needs T1/A4 review.

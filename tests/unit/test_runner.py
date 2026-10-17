@@ -110,3 +110,27 @@ def test_attempt_aware_targets_are_told_the_attempt_id(tmp_path: Path) -> None:
     attempt = _attempt()
     _run(attempt, target, tmp_path / "trials.jsonl")
     assert target.attempt_ids == [attempt.attempt_id]
+
+
+def test_guardrails_reported_by_the_target_are_stored_on_its_turn(tmp_path: Path) -> None:
+    trial = _run(_attempt("OVERLIMIT TRANSFER"), FakeTarget(), tmp_path / "trials.jsonl")
+    assert trial.turns[0].guardrails == ()
+    assert trial.turns[1].guardrails == ("pre_tool",)
+
+
+def test_no_guardrails_are_stored_when_none_fired(tmp_path: Path) -> None:
+    trial = _run(_attempt(), FakeTarget(), tmp_path / "trials.jsonl")
+    assert trial.turns[1].guardrails == ()
+
+
+def test_targets_that_do_not_report_guardrails_still_work(tmp_path: Path) -> None:
+    class _Plain:
+        def handle_message(self, text: str) -> tuple[str, list[dict[str, Any]]]:
+            return "plain", []
+
+        def reset_conversation(self) -> None:
+            pass
+
+    trial = _run(_attempt(), _Plain(), tmp_path / "trials.jsonl")
+    assert trial.turns[1].content == "plain"
+    assert trial.turns[1].guardrails == ()

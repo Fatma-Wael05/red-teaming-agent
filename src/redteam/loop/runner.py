@@ -61,6 +61,12 @@ def to_tool_calls(log: list[dict[str, Any]]) -> tuple[ToolCall, ...]:
     return tuple(calls)
 
 
+def _guardrails(target: object) -> tuple[str, ...]:
+    """Guardrails the target says fired on its last message (empty if it does not report)."""
+    reported = getattr(target, "last_guardrails", None) or ()
+    return tuple(str(name) for name in reported)
+
+
 def run_round(
     attempt: AttemptRecord,
     *,
@@ -106,6 +112,7 @@ def run_round(
         speaker=Speaker.TARGET,
         content=reply,
         tool_calls=to_tool_calls(tool_log),
+        guardrails=_guardrails(target),
     )
     turns = (attacker_turn, target_turn)
     unjudged = Trial(
