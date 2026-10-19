@@ -55,6 +55,7 @@ def main() -> None:
     )
     parser.add_argument("--specialist", choices=["injection", "tool_hijack"])
     parser.add_argument("--n", type=int, default=3)
+    parser.add_argument("--learnings", default="", help="what earlier rounds taught us")
     args = parser.parse_args()
 
     target_path = Path(args.target_path)
@@ -74,11 +75,11 @@ def main() -> None:
     if args.specialist == "injection":
         from redteam.attacker.injection import InjectionSpecialist
 
-        attempts = InjectionSpecialist(llm).generate(args.n)
+        attempts = InjectionSpecialist(llm).generate(args.n, learnings=args.learnings)
     elif args.specialist == "tool_hijack":
         from redteam.attacker.tool_hijack import ToolHijackSpecialist
 
-        attempts = ToolHijackSpecialist(llm).generate(args.n)
+        attempts = ToolHijackSpecialist(llm).generate(args.n, learnings=args.learnings)
     else:
         attempts = [
             AttemptRecord(
