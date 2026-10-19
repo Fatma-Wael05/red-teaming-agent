@@ -107,8 +107,13 @@ def main() -> None:
         turn = trial.turns[1]
         calls = []
         for call in turn.tool_calls:
-            blocked = bool((call.result or {}).get("blocked", False))
-            calls.append((call.name, call.arguments, "blocked" if blocked else "ran"))
+            result = call.result or {}
+            status = "ok"
+            if result.get("blocked"):
+                status = "blocked"
+            elif "error" in result:
+                status = "error"
+            calls.append((call.name, call.arguments, status))
         print(f"\n> {ascii(attempt.payload)}")
         print(f"  reply: {ascii(turn.content[:200])}")
         print(f"  tool calls: {calls}")
