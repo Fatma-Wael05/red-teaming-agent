@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from redteam.shared.pricing import notional_cost_usd
@@ -18,8 +20,9 @@ _VARS = [
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in _VARS:
-        monkeypatch.delenv(name, raising=False)
+     for name in list(os.environ):
+        if name.startswith("LLM_") or name.endswith("_API_KEY"):
+            monkeypatch.delenv(name)
 
 
 def _settings(**kwargs: object) -> Settings:
