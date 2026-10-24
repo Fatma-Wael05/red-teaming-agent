@@ -4,9 +4,11 @@ A specialist asks the attacker model for attacks as JSON, validates them, and re
 frozen AttemptRecords. The model never writes ids, rounds or the specialist name.
 """
 
+import hashlib
 import json
 import re
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -72,12 +74,19 @@ def extract_json_list(text: str) -> list[Any]:
 
 
 class Specialist:
-    """Subclasses set name, categories, system_prompt and few_shots."""
+    """Subclasses set name, categories, system_prompt and few_shots.
+
+    Subclasses that support the static_baseline condition also set `refdb_path`
+    to a JSON file of {"category", "payload", "technique_tags"?, "strategy"?}
+    entries (see data/refdb/). That's what makes `load_static` and
+    `frozen_list_sha256` usable without raising.
+    """
 
     name: str = "specialist"
     categories: tuple[str, ...] = ()
     system_prompt: str = ""
     few_shots: tuple[ProposedAttack, ...] = ()
+    refdb_path: Path | None = None
 
     def __init__(self, llm: ChatLike, *, max_calls: int = 3) -> None:
         self._llm = llm
@@ -112,7 +121,9 @@ class Specialist:
         learnings: str = "",
         avoid: Sequence[str] = (),
     ) -> list[AttemptRecord]:
-        """Return up to `count` validated attempts. Asks again for any that are missing."""
+        """Return up to `count` validated attempts. Asks again for any that are missing.
+        Used for Condition.ADAPTIVE; for Condition.STATIC_BASELINE use `load_static`
+        instead, which makes no LLM call at all."""
         seen = {payload.strip().lower() for payload in avoid}
         attempts: list[AttemptRecord] = []
         for _ in range(self._max_calls):
@@ -150,3 +161,65 @@ class Specialist:
             technique_tags=tuple(proposed.technique_tags),
             round=round_num,
         )
+
+    # ---------------------------------------------------- static baseline
+    @classmethod
+    def load_static_with_hash(cls, round_num: int = 0) -> tuple[list[AttemptRecord], str]:
+        """Condition.STATIC_BASELINE: read `refdb_path` ONCE, return both the frozen
+        AttemptRecords and the sha256 of the exact bytes they came from.
+        No LLM call, no loop — "frozen list, no inner or outer loop" (schemas.Condition).
+
+        One read is deliberate: `load_static()` and `frozen_list_sha256()` as two
+        separate reads could race with an edit in between, so the recorded hash
+        would no longer provably match what was actually run. This is the one
+        place that reads the file; both convenience methods below call it.
+
+        Entries whose "category" isn't in `cls.categories` are skipped rather than
+        raising, since one refdb file may hold more than one specialist's categories
+        (this file mixes all four: prompt_injection, disclosure, tool_hijack,
+        guardrail_bypass). Unrecognized JSON fields (id, source, adapted_from,
+        target_functions, expected_checker) are ignored; AttemptRecord is frozen
+        with extra="forbid", so only its real fields are ever passed through.
+        """
+        if cls.refdb_path is None:
+            raise ValueError(f"{cls.name} has no refdb_path set for a static baseline")
+        raw = cls.refdb_path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        items = json.loads(raw.decode("utf-8"))
+        attempts: list[AttemptRecord] = []
+        for item in items:
+            category = item["category"]
+            if category not in cls.categories:
+                continue
+            # Accept "technique_tags" (ProposedAttack's own field name), "tags"
+            # (this refdb's name for the same thing), or fall back to "strategy".
+            tags = (
+                item.get("technique_tags")
+                or item.get("tags")
+                or ([item["strategy"]] if item.get("strategy") else [])
+            )
+            attempts.append(
+                AttemptRecord(
+                    specialist=cls.name,
+                    attack_category=category,
+                    payload=item["payload"],
+                    technique_tags=tuple(tags),
+                    round=round_num,
+                )
+            )
+        return attempts, digest
+
+    @classmethod
+    def load_static(cls, round_num: int = 0) -> list[AttemptRecord]:
+        """Convenience wrapper around `load_static_with_hash` for callers that
+        only need the attempts (e.g. a quick dry run), not the hash."""
+        attempts, _ = cls.load_static_with_hash(round_num)
+        return attempts
+
+    @classmethod
+    def frozen_list_sha256(cls) -> str:
+        """Convenience wrapper around `load_static_with_hash` for callers that
+        only need the hash. Prefer `load_static_with_hash` when you need both,
+        so they come from the same read."""
+        _, digest = cls.load_static_with_hash()
+        return digest
