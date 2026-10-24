@@ -46,7 +46,9 @@ def test_every_category_belongs_to_exactly_one_of_the_two_specialists() -> None:
     a2 = set(InjectionSpecialist.categories)
     a3 = set(ToolHijackSpecialist.categories)
     assert a2.isdisjoint(a3), "a category claimed by both specialists would double-count attempts"
-    assert categories <= (a2 | a3), f"categories with no owning specialist: {categories - (a2 | a3)}"
+    assert categories <= (a2 | a3), (
+        f"categories with no owning specialist: {categories - (a2 | a3)}"
+    )
 
 
 def test_the_two_specialists_partition_the_file_with_no_overlap_or_gap() -> None:
