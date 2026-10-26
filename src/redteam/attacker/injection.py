@@ -1,7 +1,7 @@
 """A2: prompt-injection and disclosure specialist. Edit the strategy prompt here."""
 
 from redteam.attacker.specialist import TARGET_PROFILE, ProposedAttack, Specialist
-
+from pathlib import Path
 # These category names match the A2 categories in the supplied reference set.
 CATEGORIES = ("prompt_injection", "disclosure")
 
@@ -127,9 +127,12 @@ FEW_SHOTS = (
     ),
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+REFDB_PATH = REPO_ROOT / "data" / "refdb" / "bank.json"
 
 class InjectionSpecialist(Specialist):
     name = "injection"
     categories = CATEGORIES
     system_prompt = SYSTEM_PROMPT
     few_shots = FEW_SHOTS
+    refdb_path = REFDB_PATH
