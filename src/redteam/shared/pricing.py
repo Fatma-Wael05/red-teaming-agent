@@ -14,6 +14,7 @@ class ModelPrice(BaseModel):
 PRICES: dict[str, ModelPrice] = {
     "openai/gpt-oss-120b": ModelPrice(input_per_million=0.15, output_per_million=0.60),
     "qwen/qwen3.8-27b": ModelPrice(input_per_million=0.80, output_per_million=4.00),
+    "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
 }
 
 
