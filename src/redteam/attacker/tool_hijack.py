@@ -1,9 +1,15 @@
 """A3: tool-hijacking and guardrail-bypass specialist. Edit the strategy prompt here."""
 
+from pathlib import Path
+
 from redteam.attacker.specialist import TARGET_PROFILE, ProposedAttack, Specialist
 
 # PLACEHOLDER: replace with S1's taxonomy categories when they are delivered.
 CATEGORIES = ("tool_hijack", "guardrail_bypass")
+
+# src/redteam/attacker/tool_hijack.py -> parents[3] is the repo root.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+REFDB_PATH = REPO_ROOT / "data" / "refdb" / "bank.json"  # shared file; filtered by categories
 
 SYSTEM_PROMPT = f"""\
 You are a security engineer on a red-team exercise. We built a banking chat assistant \
@@ -60,3 +66,4 @@ class ToolHijackSpecialist(Specialist):
     categories = CATEGORIES
     system_prompt = SYSTEM_PROMPT
     few_shots = FEW_SHOTS
+    refdb_path = REFDB_PATH  # enables ToolHijackSpecialist.load_static()
